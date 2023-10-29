@@ -1,0 +1,50 @@
+// -*- go -*-
+//
+// Copyright (c) 2023 Markku Rossi
+//
+// All rights reserved.
+//
+
+// Example:
+//
+//	./garbled -v -e -i 0x0be4a09b320a4913416abc592e26a1ed examples/node/init.mpcl
+//	./garbled -v -i 0x163cc8979d1b80994b28413e5f0de0f5 examples/node/init.mpcl
+
+package main
+
+import (
+	"crypto/cipher/gcm"
+	"encoding/binary"
+)
+
+func main(g, e [16]byte) ([]byte, []byte) {
+	var key [16]byte
+
+	for i := 0; i < len(key); i++ {
+		key[i] = g[i] ^ e[i]
+	}
+
+	var additional []byte
+	var nonce [gcm.NonceSize]byte
+	var input []byte
+
+	state := encodeState(0, input)
+
+	return gcm.EncryptAES128(key, nonce, state, additional), nonce
+}
+
+func encodeState(value uint32, input []byte) []byte {
+	state := make([]byte, 4+len(input))
+	state = binary.PutUint32(state, 0, value)
+	if len(input) == 0 {
+		return state
+	}
+	return memcpy(state, 4, input, 0)
+}
+
+func memcpy(dst []byte, dstOfs int, src []byte, srcOfs int) []byte {
+	for i := 0; srcOfs+i < len(src) && dstOfs+i < len(dst); i++ {
+		dst[dstOfs+i] = src[srcOfs+i]
+	}
+	return dst
+}

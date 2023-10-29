@@ -1,0 +1,50 @@
+// -*- go -*-
+//
+// Copyright (c) 2023 Markku Rossi
+//
+// All rights reserved.
+//
+
+// Example:
+//
+//  ./garbled -v -e -i 0x0be4a09b320a4913416abc592e26a1ed examples/node/debug.mpcl
+//	./garbled -v -i 0x163cc8979d1b80994b28413e5f0de0f5,0x000000000000000000000000,0x4d653519af5784f30be202fb6e3284671927bbdb examples/node/debug.mpcl
+
+package main
+
+import (
+	"crypto/cipher/gcm"
+	"encoding/binary"
+)
+
+type Garbler struct {
+	Key   [16]byte
+	Nonce [gcm.NonceSize]byte
+	State []byte
+}
+
+type Evaluator struct {
+	Key [16]byte
+}
+
+func main(g Garbler, e Evaluator) (uint32, []byte, bool) {
+	var key [16]byte
+
+	for i := 0; i < len(key); i++ {
+		key[i] = g.Key[i] ^ e.Key[i]
+	}
+
+	var additional []byte
+	state, ok := gcm.DecryptAES128(key, g.Nonce, g.State, additional)
+	if !ok {
+		return 0, additional, false
+	}
+	value, inputLen := decodeState(state)
+
+	return value, state, true
+}
+
+func decodeState(state []byte) (uint32, int) {
+	value := binary.GetUint32(state)
+	return value, len(state) - 4
+}

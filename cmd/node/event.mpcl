@@ -1,0 +1,94 @@
+// -*- go -*-
+//
+// Copyright (c) 2023 Markku Rossi
+//
+// All rights reserved.
+//
+
+// Example:
+//
+//  ./garbled -v -e -i 0x0be4a09b320a4913416abc592e26a1ed examples/node/event.mpcl
+//	./garbled -v -i 0x163cc8979d1b80994b28413e5f0de0f5,0x000000000000000000000000,0x4d653519af5784f30be202fb6e3284671927bbdb,0x00000001 examples/node/event.mpcl
+
+package main
+
+import (
+	"crypto/cipher/gcm"
+	"encoding/binary"
+)
+
+type Garbler struct {
+	Key   [16]byte
+	Nonce [gcm.NonceSize]byte
+	State []byte
+	Input []byte
+}
+
+type Evaluator struct {
+	Key [16]byte
+}
+
+func main(g Garbler, e Evaluator) ([]byte, []byte, bool, uint32) {
+	var key [16]byte
+
+	for i := 0; i < len(key); i++ {
+		key[i] = g.Key[i] ^ e.Key[i]
+	}
+
+	var empty []byte
+	state, ok := gcm.DecryptAES128(key, g.Nonce, g.State, empty)
+	if !ok {
+		return empty, empty, false, 0
+	}
+	value, input := decodeState(state, g.Input)
+	var in []byte
+
+	if len(input) >= 5 {
+		cmd := input[0]
+		inc := binary.GetUint32(input[1:])
+		if cmd == '+' {
+			value += inc
+		} else if cmd == '-' {
+			value -= inc
+		} else {
+			return empty, empty, false, 0
+		}
+		if len(input) > 5 {
+			in = input[5:]
+		}
+	} else {
+		in = input
+	}
+	state = encodeState(value, in)
+
+	// We must not reuse nonce so let's increment it by 1.
+	nonce := binary.GetUint(g.Nonce) + 1
+	g.Nonce = binary.PutUint(g.Nonce, 0, nonce)
+
+	return gcm.EncryptAES128(key, g.Nonce, state, empty), g.Nonce, true, value
+}
+
+func encodeState(value uint32, input []byte) []byte {
+	state := make([]byte, 4+len(input))
+	state = binary.PutUint32(state, 0, value)
+	if len(input) == 0 {
+		return state
+	}
+	return memcpy(state, 4, input, 0)
+}
+
+func decodeState(state []byte, in []byte) (uint32, []byte) {
+	value := binary.GetUint32(state)
+	if len(state) == 4 {
+		return value, in
+	}
+	input := state[4:]
+	return value, input + in
+}
+
+func memcpy(dst []byte, dstOfs int, src []byte, srcOfs int) []byte {
+	for i := 0; srcOfs+i < len(src) && dstOfs+i < len(dst); i++ {
+		dst[dstOfs+i] = src[srcOfs+i]
+	}
+	return dst
+}
